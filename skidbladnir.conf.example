@@ -9,7 +9,7 @@
 # ========================================================
 
 # Login: the user you create in Raspberry Pi Imager. With the password
-# here, deploy.sh installs its SSH key once and answers sudo itself.
+# here, deploy.sh types it for SSH (with sshpass) and answers sudo itself.
 # Pick a strong one: SSH listens on every network the Pi joins.
 PI_USER="CHANGE_ME"
 PI_PASSWORD="CHANGE_ME"

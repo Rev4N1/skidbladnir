@@ -30,7 +30,7 @@ is safe to re-run.
 - **A data USB cable** (micro-USB to your laptop), and any USB power.
 - **A [Tailscale](https://tailscale.com) account.**
 - **PC:** Linux with `bash`, `ssh` and `scp`, for `deploy.sh`. `sshpass` is
-  recommended, so even the first login is silent (`sudo dnf install sshpass`).
+  recommended, so it types the password for you (`sudo dnf install sshpass`).
   Every step also shows how to do it by hand, with the OpenSSH client (`ssh`,
   `scp`) in PowerShell.
 
@@ -201,10 +201,9 @@ setup.sh                   runs on the Pi, one step at a time
 - **The Pi only gets what it needs.** `setup.sh` and its settings travel
   inside the SSH command, and are deleted when it finishes. The password stays
   on your PC.
-- **No password prompts.** `deploy.sh` logs in with its own SSH key
-  (`~/.ssh/skidbladnir_ed25519`, created on first run), installed once using
-  `PI_PASSWORD`. That's silent with `sshpass`, and asks once without it.
-  `sudo` is answered from `PI_PASSWORD` too.
+- **Passwords, no SSH keys.** `deploy.sh` logs in with `PI_PASSWORD`. With
+  `sshpass` installed it types it for you; without it, SSH asks. `sudo` is
+  answered from `PI_PASSWORD` either way.
 - **Speed:** Tailscale encrypts in userspace on a 1 GHz core over 2.4 GHz
   Wi-Fi, so expect tens of Mbps. Plenty for a phone, or for reaching a LAN.
 

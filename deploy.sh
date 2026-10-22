@@ -16,7 +16,6 @@ cd "$(dirname "$0")"
 
 CONF=skidbladnir.conf
 PI_USB_IP=10.12.194.1
-KEY="$HOME/.ssh/skidbladnir_ed25519"
 
 # What the Pi gets from skidbladnir.conf. Everything else stays on the PC.
 PI_VARS="PI_NAME COUNTRY TS_AUTHKEY"
@@ -58,36 +57,27 @@ emit() {
 
 # ---- ssh ------------------------------------------------------------
 
-# deploy.sh logs in with its own key, installed once (with PI_PASSWORD).
-# Host keys aren't pinned: every reflash makes new ones.
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -C skidbladnir-deploy -f "$KEY"
-SSH_OPTS=(-i "$KEY" -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
-          -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+# Passwords only. With sshpass installed, PI_PASSWORD is typed for you;
+# without it, ssh asks. Host keys aren't pinned: every reflash makes
+# new ones.
+SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3
+          -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          -o LogLevel=ERROR)
 
-# trust <user@host> - install the deploy key unless it already works
-trust() {
-    ssh -o BatchMode=yes "${SSH_OPTS[@]}" "$1" true 2>/dev/null && return 0
-    local add='f=$HOME/.ssh/authorized_keys; umask 077; mkdir -p "${f%/*}"; touch "$f"; k=$(cat);
-               grep -qxF "$k" "$f" || echo "$k" >> "$f"; chmod 600 "$f"'
+# pw <ssh|scp> <args...> - run it, typing PI_PASSWORD when sshpass is there
+pw() {
     if [ -n "$PI_PASSWORD" ] && command -v sshpass >/dev/null; then
-        SSHPASS=$PI_PASSWORD sshpass -e ssh -o PreferredAuthentications=password,keyboard-interactive \
-            "${SSH_OPTS[@]}" "$1" "$add" < "$KEY.pub" || true
+        SSHPASS=$PI_PASSWORD sshpass -e "$@"
     else
-        say "authorizing deploy.sh's key on $1 - its password is asked this once"
-        [ -n "$PI_PASSWORD" ] && echo "    (install sshpass and it'll use PI_PASSWORD from $CONF instead)"
-        ssh "${SSH_OPTS[@]}" "$1" "$add" < "$KEY.pub" || true
+        "$@"
     fi
-    ssh -o BatchMode=yes "${SSH_OPTS[@]}" "$1" true 2>/dev/null \
-        || die "couldn't log in to $1 with the deploy key"
 }
 
-# pi_login [--usb] - user@address of the Pi, with the deploy key trusted
+# pi_login [--usb] - user@address of the Pi
 pi_login() {
     require PI_USER PI_NAME
     local addr=$PI_HOST
     [ "${1:-}" = --usb ] && addr=$PI_USB_IP
-    trust "$PI_USER@$addr" >&2
     echo "$PI_USER@$addr"
 }
 
@@ -137,7 +127,7 @@ cmd_pi() {
         unlock="{ echo $(printf '%s\n' "$PI_PASSWORD" | base64 -w0) | base64 -d | sudo -S -p '' -v 2>/dev/null || true; } &&"
     args=$(printf '%q ' "$@")
     say "setup.sh ${*:-all} on $login"
-    ssh -t "${SSH_OPTS[@]}" "$login" "
+    pw ssh -t "${SSH_OPTS[@]}" "$login" "
         d=\$(mktemp -d) && chmod 700 \"\$d\" &&
         echo $s | base64 -d > \"\$d/setup.sh\" && echo $c | base64 -d > \"\$d/pi.conf\" &&
         $unlock sudo bash \"\$d/setup.sh\" $args; rc=\$?; rm -rf \"\$d\"; exit \$rc" || true
