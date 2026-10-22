@@ -212,12 +212,6 @@ rpi:
   enable_usb_gadget: true
 ```
 
-## Related
-
-[Bifrost](https://github.com/Rev4N1/bifrost) sets up OpenWrt routers: main
-router, dumb APs with fast roaming, a WireGuard server, and a Telegram
-home/away bot.
-
 ## License
 
 [MIT](LICENSE)
