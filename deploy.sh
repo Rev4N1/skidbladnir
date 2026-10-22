@@ -5,11 +5,10 @@
 # "sdcard" (see README.md). Settings: skidbladnir.conf.
 #
 #   ./deploy.sh sdcard            turn on USB gadget mode on a freshly flashed card
-#   ./deploy.sh pi [--usb] [step] run setup.sh on the Pi (all|network|system|wifi|
+#   ./deploy.sh pi [--usb] [step] run setup.sh on the Pi (all|system|wifi|usb|
 #                                 tailscale|poweroff; default: all)
-#   ./deploy.sh router            let an OpenWrt router take the Pi on its USB port
 #
-#   --usb: the Pi is plugged into this PC (first setup).
+#   --usb: reach the Pi over its USB cable (10.12.194.1), not Wi-Fi.
 # Every target is safe to re-run.
 # ========================================================
 set -euo pipefail
@@ -20,14 +19,14 @@ PI_USB_IP=10.12.194.1
 KEY="$HOME/.ssh/skidbladnir_ed25519"
 
 # What the Pi gets from skidbladnir.conf. Everything else stays on the PC.
-PI_VARS="PI_NAME COUNTRY TS_AUTHKEY PI_MAC HOST_MAC"
+PI_VARS="PI_NAME COUNTRY TS_AUTHKEY"
 
 say() { printf '\n>>> %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 case "${1:-}" in
-    sdcard|pi|router) ;;
+    sdcard|pi) ;;
     *) usage ;;
 esac
 
@@ -36,7 +35,7 @@ esac
 if [ "$1" != sdcard ]; then
     [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
     set +u; . "./$CONF"; set -u
-    : "${PI_HOST:=}" "${PI_PASSWORD:=}" "${TS_AUTHKEY:=}" "${PI_MAC:=}" "${HOST_MAC:=}" "${ROUTER:=}"
+    : "${PI_HOST:=}" "${PI_PASSWORD:=}" "${TS_AUTHKEY:=}"
     [ -n "$PI_HOST" ] || PI_HOST="${PI_NAME:-}.local"
 fi
 
@@ -92,19 +91,6 @@ pi_login() {
     echo "$PI_USER@$addr"
 }
 
-# Record the MACs "setup.sh network" pinned, so a reflashed Pi gets
-# the same ones.
-record_macs() {
-    local pinned
-    pinned=$(ssh "${SSH_OPTS[@]}" "$1" cat /etc/modprobe.d/usb-gadget.conf 2>/dev/null) || return 0
-    PI_MAC=$(sed -n 's/.*dev_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
-    HOST_MAC=$(sed -n 's/.*host_addr=\([^ ]*\).*/\1/p' <<<"$pinned")
-    [ -n "$PI_MAC" ] && [ -n "$HOST_MAC" ] || return 0
-    sed -i -e "s/^PI_MAC=\"[^\"]*\"/PI_MAC=\"$PI_MAC\"/" \
-           -e "s/^HOST_MAC=\"[^\"]*\"/HOST_MAC=\"$HOST_MAC\"/" "$CONF"
-    echo "    PI_MAC=$PI_MAC HOST_MAC=$HOST_MAC recorded in $CONF"
-}
-
 # ---- targets --------------------------------------------------------
 
 # Add enable_usb_gadget: true under rpi: in the card's cloud-init
@@ -156,20 +142,9 @@ cmd_pi() {
         echo $s | base64 -d > \"\$d/setup.sh\" && echo $c | base64 -d > \"\$d/pi.conf\" &&
         $unlock sudo bash \"\$d/setup.sh\" $args; rc=\$?; rm -rf \"\$d\"; exit \$rc" || true
 
-    [ "${1:-}" = network ] && record_macs "$login"
-    return 0
-}
-
-# Run openwrt/usb-gadget.sh on the router (asks its root password).
-cmd_router() {
-    require ROUTER
-    say "OpenWrt router $ROUTER"
-    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-        "$ROUTER" sh -s < openwrt/usb-gadget.sh
 }
 
 case "$1" in
     sdcard) cmd_sdcard ;;
     pi)     shift; cmd_pi "$@" ;;
-    router) cmd_router ;;
 esac

@@ -15,18 +15,10 @@ PI_USER="CHANGE_ME"
 PI_PASSWORD="CHANGE_ME"
 
 PI_NAME="skidbladnir"       # the hostname you set in Imager; also its Tailscale name
-PI_HOST=""                  # how this PC reaches it; empty = <PI_NAME>.local
+PI_HOST=""                  # how this PC reaches it over Wi-Fi; empty = <PI_NAME>.local
 
 COUNTRY="CHANGE_ME"         # Wi-Fi country, ISO 3166 code, e.g. DE, FR, US
 
 # Tailscale auth key (admin console > Settings > Keys), used only for the
 # first login. Empty = the Pi prints a login link instead.
 TS_AUTHKEY=""
-
-# OpenWrt router the Pi plugs into at home, for "./deploy.sh router"
-ROUTER="root@192.168.1.1"
-
-# Filled in by "./deploy.sh pi --usb network". Kept here so a reflashed
-# Pi gets the same MACs, and your router and laptop still recognize it.
-PI_MAC=""
-HOST_MAC=""

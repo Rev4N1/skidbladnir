@@ -1,20 +1,17 @@
 #!/bin/bash
 # ========================================================
 # setup.sh - Raspberry Pi Zero 2 W as a portable
-# Tailscale exit node and subnet router for whatever LAN
-# it's on: a router's USB port at home, any Wi-Fi
-# elsewhere. Runs as root on the Pi; deploy.sh copies it
+# Tailscale exit node and subnet router for whatever Wi-Fi
+# it's on. Runs as root on the Pi; deploy.sh copies it
 # over with pi.conf (written from skidbladnir.conf), runs
 # it, and deletes both.
 #
-#   setup.sh network            usb0 as plain DHCP client + pinned MACs
-#                               (first, while on the PC's USB)
-#   setup.sh                    everything, network included
-#   setup.sh system|wifi|tailscale    one step
-#   setup.sh poweroff           shut down (before moving the cable)
+#   setup.sh                    everything
+#   setup.sh system|wifi|usb|tailscale    one step
+#   setup.sh poweroff           shut down
 #
 # Every step converges: re-running it changes only what
-# differs, and keeps the Tailscale login and pinned MACs.
+# differs, and keeps the Tailscale login.
 # ========================================================
 set -eu
 
@@ -30,46 +27,6 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
 NEED_REBOOT=0
 CFG=/boot/firmware/config.txt
-
-# ---- network: usb0 as a plain DHCP client with fixed MACs ----------
-# rpi-usb-gadget's auto-switcher (rpi-usb-gadget-ics) is what brings
-# usb0 up at boot: NetworkManager leaves USB-gadget interfaces alone
-# unless something activates them. It must stay ENABLED. On a router it
-# picks the "shared" profile (it only recognizes a PC's connection
-# sharing), so that profile is turned into a plain DHCP client here;
-# as shipped it would be an authoritative DHCP server on the bridged
-# LAN. g_ether picks random MACs every boot; they get pinned, so the
-# router and your laptop see the same device every time.
-phase_network() {
-    hdr "USB network"
-    nmcli -t -f NAME connection show | grep -qx 'USB Gadget (shared)' \
-        || die "no 'USB Gadget (shared)' profile - is USB gadget mode on? (deploy.sh sdcard)"
-
-    systemctl enable rpi-usb-gadget-ics.service >/dev/null 2>&1 \
-        || die "can't enable rpi-usb-gadget-ics.service - it's what brings usb0 up at boot"
-    want="yes:auto:link-local"
-    have=$(nmcli -g connection.autoconnect,ipv4.method,ipv6.method connection show "USB Gadget (shared)" | paste -sd:)
-    if [ "$have" != "$want" ]; then
-        nmcli connection modify "USB Gadget (shared)" connection.autoconnect yes \
-            ipv4.method auto ipv4.addresses "" ipv6.method link-local
-        NEED_REBOOT=1
-    fi
-    nmcli connection modify "USB Gadget (client)" connection.autoconnect no 2>/dev/null || true
-    ok "DHCP client, IPv6 link-local, switcher on (it brings usb0 up at boot)"
-
-    conf=/etc/modprobe.d/usb-gadget.conf
-    cur_dev=$(sed -n 's/.*dev_addr=\([^ ]*\).*/\1/p' "$conf" 2>/dev/null || true)
-    cur_host=$(sed -n 's/.*host_addr=\([^ ]*\).*/\1/p' "$conf" 2>/dev/null || true)
-    dev=${PI_MAC:-${cur_dev:-$(dmesg | awk '/: MAC/ {print $NF}' | tail -n1)}}
-    host=${HOST_MAC:-${cur_host:-$(dmesg | awk '/: HOST MAC/ {print $NF}' | tail -n1)}}
-    [ -n "$dev" ] && [ -n "$host" ] || die "no g_ether MACs found - reboot and re-run"
-    line="options g_ether host_addr=$host dev_addr=$dev"
-    if [ "$(cat "$conf" 2>/dev/null)" != "$line" ]; then
-        echo "$line" > "$conf"
-        NEED_REBOOT=1
-    fi
-    ok "pinned MACs: PI_MAC=$dev HOST_MAC=$host"
-}
 
 # ---- system: update, then strip it down ---------------------------
 phase_system() {
@@ -124,9 +81,8 @@ phase_system() {
     ok "Bluetooth, LED, display, audio, consoles off"
 }
 
-# ---- wifi: the uplink away from home -------------------------------
-# At home the Pi is online through usb0 (NetworkManager prefers wired).
-# Elsewhere it joins a Wi-Fi saved with nmcli (README.md).
+# ---- wifi: the Pi's only uplink ------------------------------------
+# It joins any Wi-Fi saved with nmcli (README.md).
 phase_wifi() {
     hdr "Wi-Fi"
     # Country on the kernel command line: it applies at boot, before
@@ -148,11 +104,33 @@ phase_wifi() {
     ok "on, country $COUNTRY, power saving off"
 }
 
-# ---- tailscale: exit node + whatever LAN the Pi is on --------------
+# ---- usb: a cable to your laptop, never a network uplink -----------
+# With USB gadget mode on (deploy.sh sdcard), rpi-usb-gadget's switcher
+# (rpi-usb-gadget-ics, which must stay ENABLED: it's what brings usb0
+# up) serves the laptop an address and is itself at 10.12.194.1. This
+# only stops it offering itself as the laptop's gateway and DNS, so the
+# laptop keeps its own internet and just gets a link to the Pi.
+phase_usb() {
+    hdr "USB link to a laptop"
+    if ! nmcli -t -f NAME connection show | grep -qx 'USB Gadget (shared)'; then
+        warn "USB gadget mode is off (deploy.sh sdcard) - skipped"
+        return
+    fi
+    systemctl enable rpi-usb-gadget-ics.service >/dev/null 2>&1 \
+        || die "can't enable rpi-usb-gadget-ics.service - it's what brings usb0 up"
+    mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+    want=$(printf 'dhcp-option=option:router\ndhcp-option=option:dns-server')
+    if [ "$(cat /etc/NetworkManager/dnsmasq-shared.d/skidbladnir.conf 2>/dev/null)" != "$want" ]; then
+        printf '%s\n' "$want" > /etc/NetworkManager/dnsmasq-shared.d/skidbladnir.conf
+        NEED_REBOOT=1
+    fi
+    ok "laptop gets an address, the Pi is at 10.12.194.1, no gateway or DNS offered"
+}
+
+# ---- tailscale: exit node + whatever Wi-Fi the Pi is on ------------
 # Tailscale needs no port forward and works behind any NAT, so the Pi
-# works from wherever it's plugged in. A NetworkManager hook advertises
-# the networks it's on right now (the home LAN through usb0, a hotel
-# Wi-Fi...), so Tailscale clients reach the whole LAN, wherever it is.
+# works from wherever it is. A NetworkManager hook advertises the Wi-Fi
+# network it's on right now, so Tailscale clients reach that whole LAN.
 phase_tailscale() {
     hdr "Tailscale"
     if ! command -v tailscale >/dev/null; then
@@ -185,43 +163,38 @@ phase_tailscale() {
     hook=/etc/NetworkManager/dispatcher.d/90-tailscale-routes
     cat > "$hook" <<'EOF'
 #!/bin/sh
-# Written by skidbladnir's setup.sh. Advertises the networks the Pi is on right
-# now (usb0, wlan0) as Tailscale subnet routes.
+# Written by skidbladnir's setup.sh. Advertises the Wi-Fi network the
+# Pi is on right now as a Tailscale subnet route.
 case "$2" in up|down|dhcp4-change) ;; *) exit 0 ;; esac
-routes=$(ip -4 route show proto kernel scope link \
-    | awk '$2 == "dev" && ($3 == "usb0" || $3 == "wlan0") {print $1}' | sort -u | paste -sd, -)
+routes=$(ip -4 route show proto kernel scope link dev wlan0 2>/dev/null | awk '{print $1}' | paste -sd, -)
 # The exit node flag again, or "set" would drop it along with the old routes.
 tailscale set --advertise-exit-node --advertise-routes="$routes"
 EOF
     chmod 755 "$hook"
-    "$hook" usb0 up || warn "couldn't advertise the current networks yet - they follow on the next network change"
-    ok "$(tailscale ip -4) as $PI_NAME: exit node + $(ip -4 route show proto kernel scope link | awk '$3 == "usb0" || $3 == "wlan0" {printf "%s ", $1}')"
+    "$hook" wlan0 up || warn "couldn't advertise the Wi-Fi network yet - it follows on the next network change"
+    ok "$(tailscale ip -4) as $PI_NAME: exit node + $(ip -4 route show proto kernel scope link dev wlan0 2>/dev/null | awk '{printf "%s ", $1}')"
 }
 
 # ---- main ----------------------------------------------------------
 case "${1:-all}" in
-    network)   phase_network ;;
     system)    phase_system ;;
     wifi)      phase_wifi ;;
+    usb)       phase_usb ;;
     tailscale) phase_tailscale ;;
     poweroff)  hdr "Shutting down - wait for the activity to stop, then unplug"; systemctl poweroff; exit 0 ;;
     all)
-        phase_network
         phase_system
         phase_wifi
+        phase_usb
         phase_tailscale
         ;;
-    *) die "usage: setup.sh [network|system|wifi|tailscale|all|poweroff]" ;;
+    *) die "usage: setup.sh [system|wifi|usb|tailscale|all|poweroff]" ;;
 esac
 
 if [ "$NEED_REBOOT" = 1 ]; then
-    if [ "${1:-all}" = network ]; then
-        hdr "Done - changes apply at the next boot"
-    else
-        hdr "Done - rebooting in 5 s to apply changes"
-        sleep 5
-        systemctl reboot
-    fi
+    hdr "Done - rebooting in 5 s to apply changes"
+    sleep 5
+    systemctl reboot
 else
     hdr "Done"
 fi
