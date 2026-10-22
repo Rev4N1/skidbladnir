@@ -4,12 +4,15 @@
 # Linux (bash); README.md also shows every step by hand.
 # Settings: skidbladnir.conf.
 #
-#   ./deploy.sh sdcard            turn on USB gadget mode on a freshly flashed card
-#   ./deploy.sh pi [--usb] [step] run setup.sh on the Pi (all|system|wifi|usb|
-#                                 tailscale|poweroff; default: all)
+#   ./deploy.sh
 #
-#   --usb: reach the Pi over its USB cable (10.12.194.1), not Wi-Fi.
-# Every target is safe to re-run.
+# No options. It finds the Pi on the USB cable, then over
+# Wi-Fi, and runs the whole of setup.sh. That is the same
+# command for a freshly flashed Pi and for keeping an
+# existing one up to date; every step is safe to re-run.
+#
+# The SD card is prepared by hand before first boot:
+# README.md section 3, step 2.
 # ========================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -20,23 +23,23 @@ PI_USB_IP=10.12.194.1
 # What the Pi gets from skidbladnir.conf. Everything else stays on the PC.
 PI_VARS="PI_NAME COUNTRY TS_AUTHKEY"
 
-say() { printf '\n>>> %s\n' "$*"; }
-die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
+say()  { printf '\n>>> %s\n' "$*"; }
+warn() { printf 'deploy: %s\n' "$*" >&2; }
+die()  { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
-case "${1:-}" in
-    sdcard|pi) ;;
-    *) usage ;;
-esac
+[ "$#" -eq 0 ] || die "deploy.sh takes no arguments - it always runs the full setup"
 
 # ---- config ---------------------------------------------------------
 
-if [ "$1" != sdcard ]; then
-    [ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
-    set +u; . "./$CONF"; set -u
-    : "${PI_HOST:=}" "${PI_PASSWORD:=}" "${TS_AUTHKEY:=}"
-    [ -n "$PI_HOST" ] || PI_HOST="${PI_NAME:-}.local"
-fi
+[ -f "$CONF" ] || die "$CONF is missing: cp -n $CONF.example $CONF, then fill it in"
+set +u
+# shellcheck source=/dev/null  # the user's file, not in this repo
+. "./$CONF"
+set -u
+: "${PI_USER:=}" "${PI_HOST:=}" "${PI_PASSWORD:=}" "${TS_AUTHKEY:=}"
+[ -n "$PI_HOST" ] || PI_HOST="${PI_NAME:-}.local"
+[ "$(stat -c %a "$CONF" 2>/dev/null || printf 600)" = 600 ] \
+    || warn "chmod 600 $CONF (it holds the Pi's password)"
 
 # require VAR... - each must be set and not CHANGE_ME
 require() {
@@ -46,8 +49,26 @@ require() {
     done
 }
 
+# valid_config - the values that end up in hostnames and commands
+valid_config() {
+    require PI_USER PI_NAME COUNTRY
+    case "$COUNTRY" in
+        [A-Z][A-Z]) ;;
+        *) die "COUNTRY must be a two-letter ISO code (e.g. DE)" ;;
+    esac
+    case "$PI_NAME" in
+        ""|-*|*-|*[!a-z0-9-]*) die "PI_NAME must be a hostname: a-z, 0-9 and -" ;;
+    esac
+    case "$PI_USER" in
+        ""|-*|*[!a-z0-9_-]*) die "PI_USER must be a lowercase username" ;;
+    esac
+}
+
 # sq <value> - single-quoted for any POSIX shell
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# b64 - base64 without newlines (GNU and BSD)
+b64() { base64 | tr -d '\n'; }
 
 # emit VAR... - shell assignments setup.sh can source
 emit() {
@@ -73,68 +94,59 @@ pw() {
     fi
 }
 
-# pi_login [--usb] - user@address of the Pi
-pi_login() {
-    require PI_USER PI_NAME
-    local addr=$PI_HOST
-    [ "${1:-}" = --usb ] && addr=$PI_USB_IP
-    echo "$PI_USER@$addr"
-}
-
-# ---- targets --------------------------------------------------------
-
-# Add enable_usb_gadget: true under rpi: in the card's cloud-init
-# user-data (YAML: one rpi: key, consistent indentation).
-cmd_sdcard() {
-    command -v findmnt >/dev/null || die "sdcard needs Linux; edit user-data by hand instead (README.md)"
-    local boot f
-    boot=$(findmnt -nro TARGET --source LABEL=bootfs | head -n1)
-    [ -n "$boot" ] || die "bootfs isn't mounted - open the SD card in your file manager first"
-    f="$boot/user-data"
-    [ -f "$f" ] || die "$f not found - flash the card with Raspberry Pi Imager first"
-    sed -i 's/\r$//' "$f"
-    if ! grep -q 'enable_usb_gadget' "$f"; then
-        if grep -q '^rpi:' "$f"; then
-            awk '
-                add { ind = match($0, /^[ \t]+[^ \t]/) ? substr($0, 1, RLENGTH - 1) : "  "
-                      print ind "enable_usb_gadget: true"; add = 0 }
-                { print }
-                /^rpi:[ \t]*$/ { add = 1 }
-                END { if (add) print "  enable_usb_gadget: true" }
-            ' "$f" > "$f.new" && mv "$f.new" "$f"
-        else
-            [ -z "$(tail -c1 "$f")" ] || echo >> "$f"
-            printf 'rpi:\n  enable_usb_gadget: true\n' >> "$f"
-        fi
+# have_ssh <address> - is SSH reachable there? The firewall closes port 22
+# on Wi-Fi once deployed, so this also tells us which route works now.
+have_ssh() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null
+    else
+        (exec 3<>"/dev/tcp/$1/22") 2>/dev/null
     fi
-    sync
-    grep -A3 '^rpi:' "$f"
-    say "USB gadget mode on. Eject the card and boot the Pi from it."
 }
 
-# Run setup.sh on the Pi. Script and config travel inside the SSH
-# command and are deleted after. With PI_PASSWORD set, sudo is answered
-# from it; otherwise sudo asks.
-cmd_pi() {
-    require PI_NAME COUNTRY
-    local where=""
-    [ "${1:-}" = --usb ] && { where=--usb; shift; }
-    local login s c args unlock=""
-    login=$(pi_login $where)
-    # shellcheck disable=SC2086
-    s=$(base64 -w0 setup.sh); c=$(emit $PI_VARS | base64 -w0)
+# pi_pick - user@address of the first Pi that answers: the USB cable
+# first (it's there whenever you're setting the Pi up), then Wi-Fi
+# (<PI_NAME>.local, or PI_HOST).
+pi_pick() {
+    local c cands=("$PI_USB_IP" "$PI_HOST")
+    for c in "${cands[@]}"; do
+        [ -n "$c" ] || continue
+        if have_ssh "$c"; then printf '%s' "$PI_USER@$c"; return 0; fi
+        printf '  %s: no SSH\n' "$c" >&2
+    done
+    return 1
+}
+
+pi_login() {
+    local login
+    login=$(pi_pick) \
+        || die "can't reach the Pi: plug in the USB cable (Wi-Fi only works before the firewall is on)"
+    printf '%s' "$login"
+}
+
+# ---- deploy ---------------------------------------------------------
+
+# setup.sh travels inside the SSH command with pi.conf and is deleted
+# afterwards (also on a signal, via the remote trap). With PI_PASSWORD
+# set, sudo is answered from it; otherwise sudo asks.
+cmd_deploy() {
+    valid_config
+    local login s c unlock="" rc=0
+    login=$(pi_login)
+    s=$(b64 < setup.sh)
+    c=$(emit $PI_VARS | b64)
     [ -n "$PI_PASSWORD" ] && \
-        unlock="{ echo $(printf '%s\n' "$PI_PASSWORD" | base64 -w0) | base64 -d | sudo -S -p '' -v 2>/dev/null || true; } &&"
-    args=$(printf '%q ' "$@")
-    say "setup.sh ${*:-all} on $login"
+        unlock="{ echo $(printf '%s\n' "$PI_PASSWORD" | b64) | base64 -d | sudo -S -p '' -v 2>/dev/null || true; } &&"
+    say "full setup on $login"
     pw ssh -t "${SSH_OPTS[@]}" "$login" "
-        d=\$(mktemp -d) && chmod 700 \"\$d\" &&
+        d=\$(mktemp -d) && chmod 700 \"\$d\" && trap 'rm -rf \"\$d\"' EXIT HUP INT TERM &&
         echo $s | base64 -d > \"\$d/setup.sh\" && echo $c | base64 -d > \"\$d/pi.conf\" &&
-        $unlock sudo bash \"\$d/setup.sh\" $args; rc=\$?; rm -rf \"\$d\"; exit \$rc" || true
-
+        $unlock sudo bash \"\$d/setup.sh\"" || rc=$?
+    case "$rc" in
+        0) ;;
+        255) warn "the connection dropped - the Pi is probably rebooting" ;;
+        *) die "setup failed on the Pi (ssh exit $rc)" ;;
+    esac
 }
 
-case "$1" in
-    sdcard) cmd_sdcard ;;
-    pi)     shift; cmd_pi "$@" ;;
-esac
+cmd_deploy
