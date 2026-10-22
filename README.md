@@ -67,34 +67,24 @@ the `firewall` step has run, so does any Wi-Fi network the Pi joins.
    - your Wi-Fi and its country,
    - **enable SSH**.
 
-2. **Turn on USB gadget mode,** for the laptop cable. With the card still in
-   the PC, and opened in your file manager so it's mounted, run this. (It also
-   works after a reflash; the backup line keeps the original next to it.)
+2. **Turn on USB gadget mode,** for the laptop cable. Imager's `user-data`
+   (on the card's `bootfs` partition) has no `rpi:` section, so this adds one
+   at the end. With the card still in the PC, and opened in your file manager
+   so it's mounted:
 
    ```bash
-   boot=$(findmnt -nro TARGET --source LABEL=bootfs | head -n1)
-   [ -n "$boot" ] || { echo "bootfs isn't mounted - open the card first" >&2; exit 1; }
-   sudo cp -p "$boot/user-data" "$boot/user-data.bak"
-   sudo sed -i 's/\r$//' "$boot/user-data"
-   if ! grep -q enable_usb_gadget "$boot/user-data"; then
-       if grep -q '^rpi:' "$boot/user-data"; then
-           sudo awk '
-               add { ind = match($0, /^[ \t]+[^ \t]/) ? substr($0, 1, RLENGTH - 1) : "  "
-                     print ind "enable_usb_gadget: true"; add = 0 }
-               { print }
-               /^rpi:[ \t]*$/ { add = 1 }
-               END { if (add) print "  enable_usb_gadget: true" }
-           ' "$boot/user-data" | sudo tee "$boot/user-data.new" >/dev/null
-           sudo mv "$boot/user-data.new" "$boot/user-data"
-       else
-           printf 'rpi:\n  enable_usb_gadget: true\n' | sudo tee -a "$boot/user-data" >/dev/null
-       fi
-   fi
-   sync
-   grep -A3 '^rpi:' "$boot/user-data"
+   f="$(findmnt -nro TARGET --source LABEL=bootfs | head -n1)/user-data"; grep -q enable_usb_gadget "$f" || printf 'rpi:\n  enable_usb_gadget: true\n' | sudo tee -a "$f" >/dev/null; sync; tail -n 3 "$f"
    ```
 
-   That last line must show `enable_usb_gadget: true` under `rpi:`.
+   The last two lines it shows must be `rpi:` and `  enable_usb_gadget: true`.
+
+   By hand: open `user-data` on the card's `bootfs` drive in a text editor and
+   add these two lines at the end, with spaces, not tabs:
+
+   ```yaml
+   rpi:
+     enable_usb_gadget: true
+   ```
 
 3. **Boot it:** put the card in, plug the Pi's **USB** port (the inner one,
    not `PWR`) into your PC, and wait 2–3 minutes. Windows needs the
