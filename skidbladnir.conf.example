@@ -18,8 +18,6 @@ PI_PASSWORD="CHANGE_ME"
 PI_NAME="skidbladnir"       # the hostname you set in Imager; also its Tailscale name
 PI_HOST=""                  # how this PC reaches it over Wi-Fi; empty = <PI_NAME>.local
 
-COUNTRY="CHANGE_ME"         # Wi-Fi country, ISO 3166 code, e.g. DE, FR, US
-
 # Tailscale auth key (admin console > Settings > Keys), used only for the
 # first login. Empty = the Pi prints a login link instead.
 TS_AUTHKEY=""

@@ -22,7 +22,7 @@ CONF=skidbladnir.conf
 PI_USB_IP=10.12.194.1
 
 # What the Pi gets from skidbladnir.conf. Everything else stays on the PC.
-PI_VARS="PI_NAME COUNTRY TS_AUTHKEY"
+PI_VARS="PI_NAME TS_AUTHKEY"
 
 say()  { printf '\n>>> %s\n' "$*"; }
 warn() { printf 'deploy: %s\n' "$*" >&2; }
@@ -52,11 +52,7 @@ require() {
 
 # valid_config - the values that end up in hostnames and commands
 valid_config() {
-    require PI_USER PI_NAME COUNTRY
-    case "$COUNTRY" in
-        [A-Z][A-Z]) ;;
-        *) die "COUNTRY must be a two-letter ISO code (e.g. DE)" ;;
-    esac
+    require PI_USER PI_NAME
     case "$PI_NAME" in
         ""|-*|*-|*[!a-z0-9-]*) die "PI_NAME must be a hostname: a-z, 0-9 and -" ;;
     esac

@@ -29,9 +29,7 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
 NEED_REBOOT=0
 CFG=/boot/firmware/config.txt
-CMD=/boot/firmware/cmdline.txt
 [ -f "$CFG" ] || die "$CFG not found - this needs Raspberry Pi OS Lite (Trixie)"
-[ -f "$CMD" ] || die "$CMD not found - this needs Raspberry Pi OS Lite (Trixie)"
 
 # write_if_changed <path> - stdin is the wanted content. Leaves the file
 # untouched when it already matches, so nothing needless is rewritten.
@@ -165,11 +163,11 @@ EOF
 # It joins any Wi-Fi saved with nmcli.
 phase_wifi() {
     hdr "Wi-Fi"
-    # Country on the kernel command line: it applies at boot, before
-    # wlan0 exists (on the first run it only appears after the reboot).
-    if ! grep -qw "cfg80211.ieee80211_regdom=$COUNTRY" "$CMD"; then
-        sed -i -e 's/ *cfg80211\.ieee80211_regdom=[^ ]*//' -e "1s/\$/ cfg80211.ieee80211_regdom=$COUNTRY/" "$CMD"
-        NEED_REBOOT=1
+    # The Wi-Fi country comes from Raspberry Pi Imager, set with the Wi-Fi
+    # network. Without one the radio keeps to the most restrictive world
+    # rules, which may not see your network's channel.
+    if iw reg get 2>/dev/null | grep -q '^country 00'; then
+        warn "no Wi-Fi country set - on the Pi: sudo raspi-config nonint do_wifi_country <CC>, e.g. DE"
     fi
     rfkill unblock wifi 2>/dev/null || true
     nmcli radio wifi on
@@ -181,7 +179,7 @@ phase_wifi() {
         printf '%s\n' "$want" > /etc/NetworkManager/conf.d/skidbladnir.conf
         nmcli general reload conf >/dev/null 2>&1 || true
     fi
-    ok "on, country $COUNTRY, power saving off, reconnects forever"
+    ok "on, power saving off, reconnects forever"
 }
 
 # ---- usb: a cable to your laptop, never a network uplink -----------
@@ -196,8 +194,10 @@ phase_usb() {
         warn "USB gadget mode is off (README.md section 3, step 2) - skipped"
         return
     fi
-    systemctl enable --now rpi-usb-gadget-ics.service >/dev/null 2>&1 \
-        || die "can't start rpi-usb-gadget-ics.service - it's what brings usb0 up"
+    # Enable only: it already ran at boot, and starting it again could
+    # re-switch usb0 under a deploy that is running over that cable.
+    systemctl enable rpi-usb-gadget-ics.service >/dev/null 2>&1 \
+        || die "can't enable rpi-usb-gadget-ics.service - it's what brings usb0 up"
     mkdir -p /etc/NetworkManager/dnsmasq-shared.d
     want=$(printf 'dhcp-option=option:router\ndhcp-option=option:dns-server')
     if [ "$(cat /etc/NetworkManager/dnsmasq-shared.d/skidbladnir.conf 2>/dev/null)" != "$want" ]; then
