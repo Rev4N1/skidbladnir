@@ -293,21 +293,14 @@ phase_tailscale() {
 
     # Exit node and subnet router both need forwarding. Forwarding also
     # makes the kernel ignore IPv6 router advertisements, so ask for them
-    # explicitly or the Pi loses its own IPv6 uplink. fq/BBR help the TCP
-    # the Pi itself opens (Tailscale's relay fallback, updates); the larger
-    # socket buffers help the tunnel's UDP on a 1 GHz core.
+    # explicitly or the Pi loses its own IPv6 uplink.
     cat > /etc/sysctl.d/99-skidbladnir.conf <<'EOF'
 # Written by skidbladnir's setup.sh.
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 net.ipv6.conf.all.accept_ra=2
 net.ipv6.conf.default.accept_ra=2
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-net.core.rmem_max=4194304
-net.core.wmem_max=4194304
 EOF
-    rm -f /etc/sysctl.d/99-tailscale.conf
     sysctl -q --system 2>/dev/null || true
     [ "$(cat /proc/sys/net/ipv4/ip_forward)" = 1 ] || die "couldn't enable IPv4 forwarding"
     [ "$(cat /proc/sys/net/ipv6/conf/all/forwarding)" = 1 ] || die "couldn't enable IPv6 forwarding"

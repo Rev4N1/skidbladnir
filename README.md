@@ -228,7 +228,7 @@ setup.sh                   runs on the Pi, one step at a time
 | `system` | Updates, then keeps updating itself: Debian security and stable updates and the Raspberry Pi archive (kernel, firmware), rebooting at 04:30 when one needs it, and removing old kernels so the card doesn't fill up. The hardware watchdog reboots it after a 14 s hang. Logs and swap in RAM only, so the SD card barely gets written; one line per boot and clean shutdown goes to `/var/log/skidbladnir.log` (capped at 60 lines) so a crash leaves a trace. Bluetooth, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
 | `wifi` | Wi-Fi on (its country comes from Imager; warns if none is set), power saving off (lower latency), and a dropped network retried forever. |
 | `usb` | Keeps `rpi-usb-gadget`'s switcher **enabled** (it's what brings `usb0` up), so a laptop on the cable gets an address with the Pi at `10.12.194.1`. Stops the Pi offering itself as the laptop's gateway or DNS. Skipped if the card wasn't prepared first (section 3, step 2). |
-| `tailscale` | Installs Tailscale with auto-updates and without support logging (which writes to the SD card), and logs in as `PI_NAME`, as an exit node. A systemd unit (`skidbladnir-routes`) advertises the Wi-Fi network as a route; a NetworkManager hook starts it on every change. Also enables forwarding (keeping IPv6 router advertisements working), fq/BBR for the TCP the Pi opens itself, and bigger socket buffers for the tunnel. |
+| `tailscale` | Installs Tailscale with auto-updates and without support logging (which writes to the SD card), and logs in as `PI_NAME`, as an exit node. A systemd unit (`skidbladnir-routes`) advertises the Wi-Fi network as a route; a NetworkManager hook starts it on every change. Also enables forwarding, keeping IPv6 router advertisements working. |
 | `firewall` | Puts `/etc/nftables.conf` in place: SSH is accepted on `usb0` and `tailscale0` only and dropped everywhere else. Established connections are kept. Nothing else on the host is filtered. It only ever replaces its own table: stopping or restarting `nftables` (an upgrade does) never touches Tailscale's rules. |
 
 `./deploy.sh` runs them all; on the Pi, `sudo bash setup.sh <step>` runs one.
@@ -242,7 +242,6 @@ setup.sh                   runs on the Pi, one step at a time
   SSH off Wi-Fi: a password is the only thing between a hotel LAN and the Pi.
 - **Speed:** Tailscale encrypts in userspace on a 1 GHz core over 2.4 GHz
   Wi-Fi, so expect tens of Mbps. Plenty for a phone, or for reaching a LAN.
-  Bigger socket buffers help the tunnel's UDP on this path.
 
 ## Limits
 
