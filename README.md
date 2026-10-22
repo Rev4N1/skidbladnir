@@ -17,8 +17,11 @@ has a fair wind, and it folds up to fit in a pocket.)
   even when it has no network at all.
 - **No firewall on the Pi:** Tailscale's access controls decide who reaches
   what.
-- **Stripped down** to what it uses, for free RAM and SD-card life. It updates
-  itself, Tailscale included.
+- **Built to run unattended for years.** Stripped down to what it uses, with
+  logs and swap in RAM so the SD card barely gets written. It updates itself
+  (Debian, the Raspberry Pi kernel and firmware, Tailscale), reboots at 04:30
+  when an update needs it, and a hardware watchdog reboots it if it ever
+  hangs. A Wi-Fi that drops is retried forever.
 
 Everything is set up from your PC with one command, `deploy.sh`, and every step
 is safe to re-run.
@@ -191,10 +194,10 @@ setup.sh                   runs on the Pi, one step at a time
 
 | `setup.sh` step | |
 |---|---|
-| `system` | Updates, with automatic security updates from then on. Logs and swap in RAM only, so the SD card barely gets written. Bluetooth, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
-| `wifi` | Wi-Fi on, with the country from `COUNTRY` and power saving off. |
+| `system` | Updates, then keeps updating itself: Debian security and stable updates and the Raspberry Pi archive (kernel, firmware), rebooting at 04:30 when one needs it. The hardware watchdog reboots it after a 14 s hang. Logs and swap in RAM only, so the SD card barely gets written. Bluetooth, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
+| `wifi` | Wi-Fi on, with the country from `COUNTRY`, power saving off (lower latency), and a dropped network retried forever. |
 | `usb` | Keeps `rpi-usb-gadget`'s switcher **enabled** (it's what brings `usb0` up), so a laptop on the cable gets an address with the Pi at `10.12.194.1`. Stops the Pi offering itself as the laptop's gateway or DNS. Skipped without `deploy.sh sdcard`. |
-| `tailscale` | Installs Tailscale with auto-updates and logs in as `PI_NAME`, as an exit node. A NetworkManager hook (`/etc/NetworkManager/dispatcher.d/90-tailscale-routes`) advertises the Wi-Fi network as a route, whenever it changes. |
+| `tailscale` | Installs Tailscale with auto-updates and without support logging (which writes to the SD card), and logs in as `PI_NAME`, as an exit node. A NetworkManager hook (`/etc/NetworkManager/dispatcher.d/90-tailscale-routes`) advertises the Wi-Fi network as a route, whenever it changes. |
 
 `./deploy.sh pi` runs them all; `./deploy.sh pi <step>` runs one.
 

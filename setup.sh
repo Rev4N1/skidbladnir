@@ -39,8 +39,32 @@ phase_system() {
     apt-get -qq autoremove
     printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' \
         > /etc/apt/apt.conf.d/20auto-upgrades
+    # Beyond Debian's security updates (the default): Debian's stable
+    # updates and the Raspberry Pi archive, where the kernel and firmware
+    # come from. A reboot an update needs happens at 04:30.
+    cat > /etc/apt/apt.conf.d/52skidbladnir <<'EOF'
+// Written by skidbladnir's setup.sh.
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename},label=Debian";
+        "origin=Debian,codename=${distro_codename}-updates";
+        "origin=Raspberry Pi Foundation,codename=${distro_codename}";
+};
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+EOF
     [ -e /run/reboot-required ] && NEED_REBOOT=1
-    ok "up to date; security updates install themselves"
+    ok "up to date; Debian and Raspberry Pi updates install themselves, rebooting at 04:30 if needed"
+
+    hdr "Watchdog"
+    # The SoC's hardware watchdog: if the system hangs for 14 s, it
+    # reboots by itself instead of staying dead until someone pulls power.
+    mkdir -p /etc/systemd/system.conf.d
+    want=$(printf '[Manager]\nRuntimeWatchdogSec=14s\nRebootWatchdogSec=2min')
+    if [ "$(cat /etc/systemd/system.conf.d/watchdog.conf 2>/dev/null)" != "$want" ]; then
+        printf '%s\n' "$want" > /etc/systemd/system.conf.d/watchdog.conf
+        systemctl daemon-reexec
+    fi
+    ok "a hang reboots it within 14 s"
 
     hdr "SD card"
     # Logs in RAM only (lost on reboot). Trixie has no rsyslog, so this
@@ -95,14 +119,15 @@ phase_wifi() {
     fi
     rfkill unblock wifi 2>/dev/null || true
     nmcli radio wifi on
-    # Power saving makes brcmfmac add up to ~100 ms of latency.
+    # Power saving makes brcmfmac add up to ~100 ms of latency. And a
+    # Wi-Fi that drops is retried forever, not just 4 times.
     mkdir -p /etc/NetworkManager/conf.d
-    want=$(printf '[connection]\nwifi.powersave = 2')
-    if [ "$(cat /etc/NetworkManager/conf.d/wifi-powersave.conf 2>/dev/null)" != "$want" ]; then
-        printf '%s\n' "$want" > /etc/NetworkManager/conf.d/wifi-powersave.conf
+    want=$(printf '[connection]\nwifi.powersave = 2\nconnection.autoconnect-retries = 0')
+    if [ "$(cat /etc/NetworkManager/conf.d/skidbladnir.conf 2>/dev/null)" != "$want" ]; then
+        printf '%s\n' "$want" > /etc/NetworkManager/conf.d/skidbladnir.conf
         nmcli general reload conf >/dev/null 2>&1 || true
     fi
-    ok "on, country $COUNTRY, power saving off"
+    ok "on, country $COUNTRY, power saving off, reconnects forever"
 }
 
 # ---- usb: a cable to your laptop, never a network uplink -----------
@@ -142,6 +167,13 @@ phase_tailscale() {
             -o /etc/apt/sources.list.d/tailscale.list
         apt-get -qq update
         DEBIAN_FRONTEND=noninteractive apt-get -qq install tailscale
+    fi
+    # No support logging: it buffers logs on the SD card.
+    if ! grep -qx 'FLAGS="--no-logs-no-support"' /etc/default/tailscaled 2>/dev/null; then
+        sed -i 's/^FLAGS=.*/FLAGS="--no-logs-no-support"/' /etc/default/tailscaled
+        grep -qx 'FLAGS="--no-logs-no-support"' /etc/default/tailscaled \
+            || echo 'FLAGS="--no-logs-no-support"' >> /etc/default/tailscaled
+        systemctl restart tailscaled
     fi
     systemctl enable --now tailscaled >/dev/null 2>&1
 
