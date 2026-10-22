@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ========================================================
 # deploy.sh - the one command you run on the PC.
-# Linux (bash). On Windows it runs in Git Bash, except
-# "sdcard" (see README.md). Settings: skidbladnir.conf.
+# Linux (bash); on Windows, README.md has the same steps
+# by hand. Settings: skidbladnir.conf.
 #
 #   ./deploy.sh sdcard            turn on USB gadget mode on a freshly flashed card
 #   ./deploy.sh pi [--usb] [step] run setup.sh on the Pi (all|system|wifi|usb|
@@ -96,7 +96,7 @@ pi_login() {
 # Add enable_usb_gadget: true under rpi: in the card's cloud-init
 # user-data (YAML: one rpi: key, consistent indentation).
 cmd_sdcard() {
-    command -v findmnt >/dev/null || die "sdcard needs Linux; on Windows edit user-data by hand (README.md)"
+    command -v findmnt >/dev/null || die "sdcard needs Linux; on Windows edit user-data by hand (README.md, Windows)"
     local boot f
     boot=$(findmnt -nro TARGET --source LABEL=bootfs | head -n1)
     [ -n "$boot" ] || die "bootfs isn't mounted - open the SD card in your file manager first"

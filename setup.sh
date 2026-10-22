@@ -23,7 +23,8 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "run as root (sudo)"
 [ -r "$DIR/pi.conf" ] || die "pi.conf not found next to $0 - run this through ./deploy.sh pi"
-. "$DIR/pi.conf"
+# Without CRs, in case the config was last saved on Windows.
+. <(tr -d '\r' < "$DIR/pi.conf")
 
 NEED_REBOOT=0
 CFG=/boot/firmware/config.txt

@@ -29,9 +29,9 @@ is safe to re-run.
   [Raspberry Pi Imager](https://www.raspberrypi.com/software/) 2.x.
 - **A data USB cable** (micro-USB to your laptop), and any USB power.
 - **A [Tailscale](https://tailscale.com) account.**
-- **PC:** Linux with `bash`, `ssh` and `scp`. `sshpass` is recommended, so even
-  the first login is silent (`sudo dnf install sshpass`). On Windows,
-  `deploy.sh` runs in Git Bash.
+- **PC:** Linux with `bash`, `ssh` and `scp`, for `deploy.sh`. `sshpass` is
+  recommended, so even the first login is silent (`sudo dnf install sshpass`).
+  On Windows, do the same by hand: see [Windows (by hand)](#windows-by-hand).
 
 ## 2. Configure
 
@@ -199,10 +199,14 @@ setup.sh                   runs on the Pi, one step at a time
   route isn't approved yet (section 3, step 5). On the Pi, `tailscale status`
   and `tailscale debug prefs` show what it advertises.
 
-## Windows
+## Windows (by hand)
 
-`deploy.sh` runs in Git Bash, except `sdcard`, which needs Linux. To do it by
-hand, open the card's `bootfs` drive and open `user-data` in Notepad:
+`deploy.sh` is for Linux. On Windows, do its two jobs by hand, in PowerShell,
+with Windows' own SSH client (Settings → System → Optional features →
+*OpenSSH Client*). Everything that runs on the Pi is the same.
+
+**Section 3, step 2 (`sdcard`):** open the card's `bootfs` drive and open
+`user-data` in Notepad:
 - If it has an `rpi:` line, add `enable_usb_gadget: true` under it, indented
   like the lines below it.
 - Otherwise, add these two lines at the end, with spaces, not tabs:
@@ -211,6 +215,33 @@ hand, open the card's `bootfs` drive and open `user-data` in Notepad:
 rpi:
   enable_usb_gadget: true
 ```
+
+**Section 3, step 4 (`pi`):** in the repo folder, copy `setup.sh` and your
+config to the Pi, then run it. Use `<PI_NAME>.local` over Wi-Fi, or
+`10.12.194.1` over the cable. SSH asks the Pi's password each time, and
+`sudo` asks it once more:
+
+```powershell
+scp setup.sh skidbladnir.conf <PI_USER>@<PI_NAME>.local:
+```
+
+```powershell
+ssh -t <PI_USER>@<PI_NAME>.local "mv skidbladnir.conf pi.conf && sudo bash setup.sh; rm -f setup.sh pi.conf"
+```
+
+For one step, put it after `setup.sh` (for example `sudo bash setup.sh
+tailscale`). The config only stays on the Pi while it runs: the same command
+deletes it.
+
+**Optional, to stop the password prompts:** install your SSH key on the Pi
+once (`ssh-keygen` first if you have no key):
+
+```powershell
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <PI_USER>@<PI_NAME>.local "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+The fix under *The laptop never sees the USB link* needs a Linux PC: Windows
+can't read the card's system partition.
 
 ## License
 
