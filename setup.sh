@@ -59,13 +59,15 @@ phase_system() {
     fi
     printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\nAPT::Periodic::AutocleanInterval "7";\n' \
         > /etc/apt/apt.conf.d/20auto-upgrades
-    # Beyond Debian's security updates (the default): Debian's stable
-    # updates and the Raspberry Pi archive, where the kernel and firmware
-    # come from. A reboot an update needs happens at 04:30. Old kernels
-    # and dependencies are removed, or a card in use for years fills up.
+    # Security and Debian's stable updates, plus the Raspberry Pi archive,
+    # where the kernel and firmware come from. Security is listed here
+    # explicitly, not left to the package's default. A reboot an update
+    # needs happens at 04:30. Old kernels and dependencies are removed, or
+    # a card in use for years fills up.
     cat > /etc/apt/apt.conf.d/52skidbladnir <<'EOF'
 // Written by skidbladnir's setup.sh.
 Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
         "origin=Debian,codename=${distro_codename},label=Debian";
         "origin=Debian,codename=${distro_codename}-updates";
         "origin=Raspberry Pi Foundation,codename=${distro_codename}";
@@ -199,9 +201,11 @@ phase_usb() {
     systemctl enable rpi-usb-gadget-ics.service >/dev/null 2>&1 \
         || die "can't enable rpi-usb-gadget-ics.service - it's what brings usb0 up"
     mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+    # 99- runs after rpi-usb-gadget's 90-...-lease.conf, so these empty
+    # options win: the laptop gets no default route or DNS from the Pi.
     want=$(printf 'dhcp-option=option:router\ndhcp-option=option:dns-server')
-    if [ "$(cat /etc/NetworkManager/dnsmasq-shared.d/skidbladnir.conf 2>/dev/null)" != "$want" ]; then
-        printf '%s\n' "$want" > /etc/NetworkManager/dnsmasq-shared.d/skidbladnir.conf
+    if [ "$(cat /etc/NetworkManager/dnsmasq-shared.d/99-skidbladnir.conf 2>/dev/null)" != "$want" ]; then
+        printf '%s\n' "$want" > /etc/NetworkManager/dnsmasq-shared.d/99-skidbladnir.conf
         NEED_REBOOT=1
     fi
     ok "laptop gets an address, the Pi is at 10.12.194.1, no gateway or DNS offered"
