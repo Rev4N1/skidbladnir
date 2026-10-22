@@ -108,15 +108,17 @@ the `firewall` step has run, so does any Wi-Fi network the Pi joins.
    ```
 
    It finds the Pi by itself: the USB cable first (at `10.12.194.1`), then
-   its Tailscale name `<PI_NAME>` (from any device on your tailnet), then
-   Wi-Fi (at `<PI_NAME>.local`, or `PI_HOST`; only until the firewall is on). It updates the Pi, strips it
-   down, sets up Wi-Fi and the laptop cable, installs Tailscale, then closes
-   SSH on Wi-Fi. Without `TS_AUTHKEY`, it prints a login link: open it and
-   approve the Pi. It reboots at the end if needed. The same command is the
-   maintenance run after an update or a config change.
+   Wi-Fi (at `<PI_NAME>.local`, or `PI_HOST`), then its Tailscale name
+   `<PI_NAME>` (from any device on your tailnet). It checks the hostname
+   before touching anything, so it won't configure a different Pi by mistake.
+   It updates the Pi, strips it down, sets up Wi-Fi and the laptop
+   cable, installs Tailscale, then closes SSH on Wi-Fi. Without `TS_AUTHKEY`,
+   it prints a login link: open it and approve the Pi. It reboots at the end
+   if needed. The same command is the maintenance run after an update or a
+   config change.
 
-   After this, the Pi's SSH answers on the **cable and Tailscale only**; the
-   command above uses the cable. Over the tailnet, `ssh <PI_USER>@<PI_NAME>`.
+   After this, the Pi's SSH answers on the **cable and Tailscale only**.
+   Over the tailnet, `ssh <PI_USER>@<PI_NAME>`.
 
    By hand: copy `setup.sh` and your config to the Pi, then run it; the same
    command deletes both after. Use `<PI_NAME>.local`, or `10.12.194.1` over
@@ -269,6 +271,14 @@ setup.sh                   runs on the Pi, one step at a time
   (`ssh <PI_USER>@10.12.194.1`, which `./deploy.sh` also tries) or the tailnet
   (`ssh <PI_USER>@<PI_NAME>`). The cable is also the way in when the Pi has no
   network at all.
+- **The first run had no internet:** package updates and Tailscale are skipped,
+  the firewall stays off (so Wi-Fi SSH still works), and any needed reboot still
+  happens. Set up Wi-Fi or the laptop cable, then run `./deploy.sh` again.
+- **Reflashed the card and it configures the old Pi:** Tailscale still gives
+  the old node the name `<PI_NAME>`, and the new card becomes `<PI_NAME>-1` (or
+  waits for a rename). Remove the old node in the admin console, then run
+  `./deploy.sh` again. The hostname check cannot tell two cards with the same
+  name apart.
 - **It rebooted and I don't know why:** `tail -n 20 /var/log/skidbladnir.log`
   on the Pi. A `boot` line with no `clean shutdown` before it means a crash or a
   power cut; a `clean shutdown` right before one means an update rebooted it.

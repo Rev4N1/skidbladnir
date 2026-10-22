@@ -7,9 +7,10 @@
 #   ./deploy.sh
 #
 # No options. It finds the Pi on the USB cable, then over
-# Wi-Fi, and runs the whole of setup.sh. That is the same
-# command for a freshly flashed Pi and for keeping an
-# existing one up to date; every step is safe to re-run.
+# Wi-Fi or its tailnet name, and runs the whole of setup.sh.
+# That is the same command for a freshly flashed Pi and for
+# keeping an existing one up to date; every step is safe to
+# re-run.
 #
 # The SD card is prepared by hand before first boot:
 # README.md section 3, step 2.
@@ -38,7 +39,7 @@ set +u
 set -u
 : "${PI_USER:=}" "${PI_HOST:=}" "${PI_PASSWORD:=}" "${TS_AUTHKEY:=}"
 [ -n "$PI_HOST" ] || PI_HOST="${PI_NAME:-}.local"
-[ "$(stat -c %a "$CONF" 2>/dev/null || printf 600)" = 600 ] \
+[ "$(stat -c %a "$CONF")" = 600 ] \
     || warn "chmod 600 $CONF (it holds the Pi's password)"
 
 # require VAR... - each must be set and not CHANGE_ME
@@ -104,17 +105,29 @@ have_ssh() {
     fi
 }
 
+# pi_verify <login> - true only if the host says its hostname is PI_NAME.
+# Another Pi on the cable, or an old tailnet node under another name, is
+# then skipped instead of being configured by mistake.
+pi_verify() {
+    local h
+    h=$(pw ssh "${SSH_OPTS[@]}" "$1" 'hostname' 2>/dev/null || true)
+    [ "$h" = "$PI_NAME" ] && return 0
+    warn "$1 answered as '${h:-nothing}', not $PI_NAME - skipped"
+    return 1
+}
+
 # pi_pick - user@address of the first Pi that answers: the USB cable
-# first (it's there whenever you're setting the Pi up), then its
-# Tailscale name (MagicDNS, from any device on your tailnet: the way in
-# once the firewall closes SSH on Wi-Fi), then Wi-Fi (<PI_NAME>.local,
-# or PI_HOST; only before the firewall is on).
+# first (it's there whenever you're setting the Pi up), then Wi-Fi
+# (<PI_NAME>.local, or PI_HOST; local and fast), then its Tailscale name
+# (MagicDNS, the way in once the firewall closes SSH on Wi-Fi).
 pi_pick() {
-    local c cands=("$PI_USB_IP" "$PI_NAME" "$PI_HOST")
+    local c cands=("$PI_USB_IP" "$PI_HOST" "$PI_NAME")
     for c in "${cands[@]}"; do
         [ -n "$c" ] || continue
-        if have_ssh "$c"; then printf '%s' "$PI_USER@$c"; return 0; fi
-        printf '  %s: no SSH\n' "$c" >&2
+        if have_ssh "$c" && pi_verify "$PI_USER@$c"; then
+            printf '%s' "$PI_USER@$c"; return 0
+        fi
+        printf '  %s: no usable SSH\n' "$c" >&2
     done
     return 1
 }
@@ -122,7 +135,7 @@ pi_pick() {
 pi_login() {
     local login
     login=$(pi_pick) \
-        || die "can't reach the Pi: plug in the USB cable, or join your tailnet (Wi-Fi only works before the firewall is on)"
+        || die "can't reach the Pi as $PI_NAME: check PI_PASSWORD, or plug in the USB cable / join your tailnet (Wi-Fi only works before the firewall is on)"
     printf '%s' "$login"
 }
 

@@ -46,11 +46,19 @@ write_if_changed() {
 phase_system() {
     hdr "Packages"
     export DEBIAN_FRONTEND=noninteractive
-    apt-get -qq -o Acquire::Retries=3 update
-    apt-get -qq -o Acquire::Retries=3 -o Dpkg::Options::=--force-confdef \
-        -o Dpkg::Options::=--force-confold full-upgrade
-    apt-get -qq -o Acquire::Retries=3 install unattended-upgrades curl
-    apt-get -qq autoremove
+    # A first run may have no internet yet (no Wi-Fi configured, or out of
+    # range). Don't die here: Wi-Fi and USB still need configuring, and the
+    # next run updates once it is online.
+    if apt-get -qq -o Acquire::Retries=3 update; then
+        apt-get -qq -o Acquire::Retries=3 -o Dpkg::Options::=--force-confdef \
+            -o Dpkg::Options::=--force-confold full-upgrade \
+            || warn "package upgrade failed - re-run once online"
+        apt-get -qq -o Acquire::Retries=3 install unattended-upgrades curl \
+            || warn "couldn't install unattended-upgrades/curl - re-run once online"
+        apt-get -qq autoremove || true
+    else
+        warn "no internet - package updates skipped; re-run once online"
+    fi
     printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\nAPT::Periodic::AutocleanInterval "7";\n' \
         > /etc/apt/apt.conf.d/20auto-upgrades
     # Beyond Debian's security updates (the default): Debian's stable
@@ -188,8 +196,8 @@ phase_usb() {
         warn "USB gadget mode is off (README.md section 3, step 2) - skipped"
         return
     fi
-    systemctl enable rpi-usb-gadget-ics.service >/dev/null 2>&1 \
-        || die "can't enable rpi-usb-gadget-ics.service - it's what brings usb0 up"
+    systemctl enable --now rpi-usb-gadget-ics.service >/dev/null 2>&1 \
+        || die "can't start rpi-usb-gadget-ics.service - it's what brings usb0 up"
     mkdir -p /etc/NetworkManager/dnsmasq-shared.d
     want=$(printf 'dhcp-option=option:router\ndhcp-option=option:dns-server')
     if [ "$(cat /etc/NetworkManager/dnsmasq-shared.d/skidbladnir.conf 2>/dev/null)" != "$want" ]; then
@@ -390,8 +398,13 @@ case "${1:-all}" in
         phase_system
         phase_wifi
         phase_usb
-        phase_tailscale
-        phase_firewall   # last: if the first run is over Wi-Fi, log in first
+        # Only close SSH on Wi-Fi once Tailscale is actually up: an offline
+        # first run must not lock you out of the one path that still works.
+        if ( phase_tailscale ); then
+            phase_firewall
+        else
+            warn "Tailscale not set up - Wi-Fi SSH left open; re-run once online"
+        fi
         ;;
     *) die "usage: setup.sh [system|wifi|usb|tailscale|firewall|all|poweroff]" ;;
 esac
