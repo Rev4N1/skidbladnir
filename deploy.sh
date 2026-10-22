@@ -64,7 +64,7 @@ valid_config() {
 # sq <value> - single-quoted for any POSIX shell
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
-# b64 - base64 without newlines (GNU and BSD)
+# b64 - base64 without newlines
 b64() { base64 | tr -d '\n'; }
 
 # emit VAR... - shell assignments setup.sh can source
@@ -93,13 +93,7 @@ pw() {
 
 # have_ssh <address> - is SSH reachable there? The firewall closes port 22
 # on Wi-Fi once deployed, so this also tells us which route works now.
-have_ssh() {
-    if command -v timeout >/dev/null 2>&1; then
-        timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null
-    else
-        (exec 3<>"/dev/tcp/$1/22") 2>/dev/null
-    fi
-}
+have_ssh() { timeout 3 bash -c "</dev/tcp/$1/22" 2>/dev/null; }
 
 # pi_verify <login> - true only if the host says its hostname is PI_NAME.
 # Another Pi on the cable, or an old tailnet node under another name, is

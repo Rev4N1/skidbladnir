@@ -95,8 +95,11 @@ EOF
     # Logs in RAM only (lost on reboot). Trixie has no rsyslog, so this
     # covers all logging.
     mkdir -p /etc/systemd/journald.conf.d
-    printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=20M\n' > /etc/systemd/journald.conf.d/volatile.conf
-    systemctl restart systemd-journald
+    want=$(printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=20M')
+    if [ "$(cat /etc/systemd/journald.conf.d/volatile.conf 2>/dev/null)" != "$want" ]; then
+        printf '%s\n' "$want" > /etc/systemd/journald.conf.d/volatile.conf
+        systemctl restart systemd-journald
+    fi
     # Swap is already compressed RAM only (zram), and / already noatime.
     systemctl disable --now man-db.timer >/dev/null 2>&1 || true
     ok "logs in RAM, no daily man-db rebuild"
