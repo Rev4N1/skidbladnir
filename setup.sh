@@ -8,7 +8,6 @@
 #
 #   setup.sh                              everything
 #   setup.sh system|wifi|usb|tailscale|firewall   one step
-#   setup.sh poweroff                     shut down
 #
 # Every step converges: re-running it changes only what
 # differs, and keeps the Tailscale login.
@@ -51,8 +50,8 @@ phase_system() {
         apt-get -qq -o Acquire::Retries=3 -o Dpkg::Options::=--force-confdef \
             -o Dpkg::Options::=--force-confold full-upgrade \
             || warn "package upgrade failed - re-run once online"
-        apt-get -qq -o Acquire::Retries=3 install unattended-upgrades curl \
-            || warn "couldn't install unattended-upgrades/curl - re-run once online"
+        apt-get -qq -o Acquire::Retries=3 install unattended-upgrades \
+            || warn "couldn't install unattended-upgrades - re-run once online"
         apt-get -qq autoremove || true
     else
         warn "no internet - package updates skipped; re-run once online"
@@ -98,44 +97,9 @@ EOF
     mkdir -p /etc/systemd/journald.conf.d
     printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=20M\n' > /etc/systemd/journald.conf.d/volatile.conf
     systemctl restart systemd-journald
-    # Swap in compressed RAM only (the default also writes to /var/swap).
-    mkdir -p /etc/rpi/swap.conf.d
-    if [ "$(cat /etc/rpi/swap.conf.d/50-zram-only.conf 2>/dev/null)" != "$(printf '[Main]\nMechanism=zram')" ]; then
-        printf '[Main]\nMechanism=zram\n' > /etc/rpi/swap.conf.d/50-zram-only.conf
-        NEED_REBOOT=1
-    fi
+    # Swap is already compressed RAM only (zram), and / already noatime.
     systemctl disable --now man-db.timer >/dev/null 2>&1 || true
-    findmnt -no OPTIONS / | grep -q noatime || warn "/ is not mounted noatime"
-    ok "logs and swap in RAM, no daily man-db rebuild"
-
-    # One line per boot and per clean shutdown. A crash or a power cut
-    # shows up as a boot with no "clean shutdown" before it. Capped at
-    # 60 lines, so this is a few KB even after years.
-    hdr "Boot record"
-    cat > /usr/local/sbin/skidbladnir-note <<'EOF'
-#!/bin/sh
-# Written by skidbladnir's setup.sh.
-f=/var/log/skidbladnir.log
-printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$f"
-tail -n 60 "$f" > "$f.new" && mv "$f.new" "$f"
-EOF
-    chmod 755 /usr/local/sbin/skidbladnir-note
-    cat > /etc/systemd/system/skidbladnir-note.service <<'EOF'
-[Unit]
-Description=skidbladnir boot record
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/local/sbin/skidbladnir-note boot
-ExecStop=/usr/local/sbin/skidbladnir-note "clean shutdown"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-    systemctl enable --now skidbladnir-note.service >/dev/null 2>&1 || true
-    ok "boots and clean shutdowns recorded in /var/log/skidbladnir.log"
+    ok "logs in RAM, no daily man-db rebuild"
 
     hdr "Unused hardware"
     systemctl disable --now bluetooth.service >/dev/null 2>&1 || true
@@ -149,14 +113,11 @@ EOF
            -e 's/^display_auto_detect=1$/display_auto_detect=0/' "$CFG"
     [ -z "$(tail -c1 "$CFG")" ] || echo >> "$CFG"
     [ "$(awk '/^\[/ {s=$0} END {print s}' "$CFG")" = "[all]" ] || echo "[all]" >> "$CFG"
-    for l in dtoverlay=disable-bt \
+    # gpu_mem=16 boots the cut-down firmware (start_cd.elf).
+    for l in dtoverlay=disable-bt gpu_mem=16 \
              dtparam=act_led_trigger=none dtparam=act_led_activelow=on; do
         grep -qxF "$l" "$CFG" || echo "$l" >> "$CFG"
     done
-    # gpu_mem=16 makes the firmware boot start_cd.elf: only if it's there.
-    if [ -f /boot/firmware/start_cd.elf ]; then
-        grep -qxF gpu_mem=16 "$CFG" || echo gpu_mem=16 >> "$CFG"
-    fi
     [ "$(md5sum < "$CFG")" = "$before" ] || NEED_REBOOT=1
     ok "Bluetooth, LED, display, audio, consoles off"
 }
@@ -165,16 +126,9 @@ EOF
 # It joins any Wi-Fi saved with nmcli.
 phase_wifi() {
     hdr "Wi-Fi"
-    # The Wi-Fi country comes from Raspberry Pi Imager, set with the Wi-Fi
-    # network. Without one the radio keeps to the most restrictive world
-    # rules, which may not see your network's channel.
-    if iw reg get 2>/dev/null | grep -q '^country 00'; then
-        warn "no Wi-Fi country set - on the Pi: sudo raspi-config nonint do_wifi_country <CC>, e.g. DE"
-    fi
-    rfkill unblock wifi 2>/dev/null || true
-    nmcli radio wifi on
-    # Power saving makes brcmfmac add up to ~100 ms of latency. And a
-    # Wi-Fi that drops is retried forever, not just 4 times.
+    # Wi-Fi and its country come from Raspberry Pi Imager. Power saving
+    # makes brcmfmac add up to ~100 ms of latency. And a Wi-Fi that
+    # drops is retried forever, not just 4 times.
     mkdir -p /etc/NetworkManager/conf.d
     want=$(printf '[connection]\nwifi.powersave = 2\nconnection.autoconnect-retries = 0')
     if [ "$(cat /etc/NetworkManager/conf.d/skidbladnir.conf 2>/dev/null)" != "$want" ]; then
@@ -218,11 +172,8 @@ phase_usb() {
 # this does not cut its own session.
 phase_firewall() {
     hdr "Firewall"
-    if ! command -v nft >/dev/null; then
-        apt-get -qq -o Acquire::Retries=3 update
-        apt-get -qq -o Acquire::Retries=3 install nftables
-    fi
-    command -v nft >/dev/null || die "couldn't install nftables (no internet?) - re-run once online"
+    # nftables ships with Raspberry Pi OS Lite, disabled.
+    command -v nft >/dev/null || die "nft not found - this needs Raspberry Pi OS Lite (Trixie)"
     # The first table/delete pair makes this file safe to load again, at
     # boot and below. No `flush ruleset`, so tailscaled's own tables are
     # never touched.
@@ -385,12 +336,6 @@ case "${1:-all}" in
     usb)       phase_usb ;;
     firewall)  phase_firewall ;;
     tailscale) phase_tailscale ;;
-    poweroff)
-        hdr "Shutting down - wait for the activity to stop, then unplug"
-        systemd-run --quiet --collect --on-active=3 --unit=skidbladnir-poweroff \
-            systemctl poweroff 2>/dev/null || systemctl poweroff
-        exit 0
-        ;;
     all)
         phase_system
         phase_wifi
@@ -403,17 +348,14 @@ case "${1:-all}" in
             warn "Tailscale not set up - Wi-Fi SSH left open; re-run once online"
         fi
         ;;
-    *) die "usage: setup.sh [system|wifi|usb|tailscale|firewall|all|poweroff]" ;;
+    *) die "usage: setup.sh [system|wifi|usb|tailscale|firewall|all]" ;;
 esac
 
 if [ "$NEED_REBOOT" = 1 ]; then
     hdr "Done - rebooting in 5 s to apply changes"
     # Detached, so this SSH command can return 0 and clean up its temp
     # dir before the reboot ends the session.
-    if ! systemd-run --quiet --collect --on-active=5 --unit=skidbladnir-reboot \
-            systemctl reboot 2>/dev/null; then
-        nohup sh -c 'sleep 5; systemctl reboot' >/dev/null 2>&1 &
-    fi
+    systemd-run --quiet --collect --on-active=5 --unit=skidbladnir-reboot systemctl reboot
 else
     hdr "Done"
 fi

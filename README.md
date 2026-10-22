@@ -205,11 +205,9 @@ internet from the laptop instead, and prefers it over Wi-Fi. It's then at
     tailscale debug prefs | grep -i route
     vcgencmd measure_temp
     df -h /
-    tail -n 20 /var/log/skidbladnir.log
   '
   ```
 
-  The last part is the boot and shutdown log (`/var/log/skidbladnir.log`).
 - **After editing `skidbladnir.conf`,** run `./deploy.sh` again. Only what
   differs changes.
 - **Reflashing the SD card:** remove the old Pi in the admin console, then do
@@ -225,8 +223,8 @@ setup.sh                   runs on the Pi, one step at a time
 
 | `setup.sh` step | |
 |---|---|
-| `system` | Updates, then keeps updating itself: Debian security and stable updates and the Raspberry Pi archive (kernel, firmware), rebooting at 04:30 when one needs it, and removing old kernels so the card doesn't fill up. The hardware watchdog reboots it after a 14 s hang. Logs and swap in RAM only, so the SD card barely gets written; one line per boot and clean shutdown goes to `/var/log/skidbladnir.log` (capped at 60 lines) so a crash leaves a trace. Bluetooth, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
-| `wifi` | Wi-Fi on (its country comes from Imager; warns if none is set), power saving off (lower latency), and a dropped network retried forever. |
+| `system` | Updates, then keeps updating itself: Debian security and stable updates and the Raspberry Pi archive (kernel, firmware), rebooting at 04:30 when one needs it, and removing old kernels so the card doesn't fill up. The hardware watchdog reboots it after a 14 s hang. Logs in RAM only (swap already is), so the SD card barely gets written. Bluetooth, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
+| `wifi` | Wi-Fi and its country come from Imager; this turns power saving off (lower latency), and a dropped network retried forever. |
 | `usb` | Keeps `rpi-usb-gadget`'s switcher **enabled** (it's what brings `usb0` up), so a laptop on the cable gets an address with the Pi at `10.12.194.1`. Stops the Pi offering itself as the laptop's gateway or DNS. Skipped if the card wasn't prepared first (section 3, step 2). |
 | `tailscale` | Installs Tailscale with auto-updates and without support logging (which writes to the SD card), and logs in as `PI_NAME`, as an exit node. A systemd unit (`skidbladnir-routes`) advertises the Wi-Fi network as a route; a NetworkManager hook starts it on every change. Also enables forwarding, keeping IPv6 router advertisements working. |
 | `firewall` | Puts `/etc/nftables.conf` in place: SSH is accepted on `usb0` and `tailscale0` only and dropped everywhere else. Established connections are kept. Nothing else on the host is filtered. It only ever replaces its own table: stopping or restarting `nftables` (an upgrade does) never touches Tailscale's rules. |
@@ -268,9 +266,6 @@ setup.sh                   runs on the Pi, one step at a time
   waits for a rename). Remove the old node in the admin console, then run
   `./deploy.sh` again. The hostname check cannot tell two cards with the same
   name apart.
-- **It rebooted and I don't know why:** `tail -n 20 /var/log/skidbladnir.log`
-  on the Pi. A `boot` line with no `clean shutdown` before it means a crash or a
-  power cut; a `clean shutdown` right before one means an update rebooted it.
 - **The laptop never sees the USB link:** the `rpi-usb-gadget-ics` service got
   disabled. Put the SD card in a Linux PC, open it in the file manager, and
   re-enable it on the card:
