@@ -211,9 +211,9 @@ phase_firewall() {
         apt-get -qq -o Acquire::Retries=3 install nftables
     fi
     command -v nft >/dev/null || die "couldn't install nftables (no internet?) - re-run once online"
-    # The first table/delete pair makes this file safe to load again:
-    # /etc/nftables.conf is read at boot and by the restart below. No
-    # `flush ruleset`, so tailscaled's own tables are never touched.
+    # The first table/delete pair makes this file safe to load again, at
+    # boot and below. No `flush ruleset`, so tailscaled's own tables are
+    # never touched.
     write_if_changed /etc/nftables.conf <<'EOF'
 #!/usr/sbin/nft -f
 # Written by skidbladnir's setup.sh.
@@ -228,9 +228,22 @@ table inet skidbladnir {
     }
 }
 EOF
+    # Debian's nftables.service stops with `nft flush ruleset`, which would
+    # also wipe Tailscale's tables (exit node and routes dead until a
+    # reboot) whenever it's stopped or restarted, an nftables upgrade
+    # included. Stopping it now only removes this table.
+    mkdir -p /etc/systemd/system/nftables.service.d
+    write_if_changed /etc/systemd/system/nftables.service.d/skidbladnir.conf <<'EOF'
+# Written by skidbladnir's setup.sh: never flush Tailscale's tables.
+[Service]
+ExecStop=
+ExecStop=-/usr/sbin/nft delete table inet skidbladnir
+EOF
+    systemctl daemon-reload
     systemctl enable nftables.service >/dev/null 2>&1 \
         || warn "couldn't enable nftables at boot - re-run this step"
-    systemctl restart nftables.service
+    # Load the file directly: it only replaces its own table.
+    nft -f /etc/nftables.conf || die "couldn't load /etc/nftables.conf"
     ok "SSH on the USB cable and Tailscale only; nothing else is filtered"
 }
 
@@ -272,8 +285,9 @@ phase_tailscale() {
 
     # Exit node and subnet router both need forwarding. Forwarding also
     # makes the kernel ignore IPv6 router advertisements, so ask for them
-    # explicitly or the Pi loses its own IPv6 uplink. fq/BBR and larger
-    # socket buffers are for userspace WireGuard on a 1 GHz core.
+    # explicitly or the Pi loses its own IPv6 uplink. fq/BBR help the TCP
+    # the Pi itself opens (Tailscale's relay fallback, updates); the larger
+    # socket buffers help the tunnel's UDP on a 1 GHz core.
     cat > /etc/sysctl.d/99-skidbladnir.conf <<'EOF'
 # Written by skidbladnir's setup.sh.
 net.ipv4.ip_forward=1

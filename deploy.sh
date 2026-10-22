@@ -105,10 +105,12 @@ have_ssh() {
 }
 
 # pi_pick - user@address of the first Pi that answers: the USB cable
-# first (it's there whenever you're setting the Pi up), then Wi-Fi
-# (<PI_NAME>.local, or PI_HOST).
+# first (it's there whenever you're setting the Pi up), then its
+# Tailscale name (MagicDNS, from any device on your tailnet: the way in
+# once the firewall closes SSH on Wi-Fi), then Wi-Fi (<PI_NAME>.local,
+# or PI_HOST; only before the firewall is on).
 pi_pick() {
-    local c cands=("$PI_USB_IP" "$PI_HOST")
+    local c cands=("$PI_USB_IP" "$PI_NAME" "$PI_HOST")
     for c in "${cands[@]}"; do
         [ -n "$c" ] || continue
         if have_ssh "$c"; then printf '%s' "$PI_USER@$c"; return 0; fi
@@ -120,7 +122,7 @@ pi_pick() {
 pi_login() {
     local login
     login=$(pi_pick) \
-        || die "can't reach the Pi: plug in the USB cable (Wi-Fi only works before the firewall is on)"
+        || die "can't reach the Pi: plug in the USB cable, or join your tailnet (Wi-Fi only works before the firewall is on)"
     printf '%s' "$login"
 }
 
@@ -142,10 +144,12 @@ cmd_deploy() {
         d=\$(mktemp -d) && chmod 700 \"\$d\" && trap 'rm -rf \"\$d\"' EXIT HUP INT TERM &&
         echo $s | base64 -d > \"\$d/setup.sh\" && echo $c | base64 -d > \"\$d/pi.conf\" &&
         $unlock sudo bash \"\$d/setup.sh\"" || rc=$?
+    # setup.sh schedules its reboot detached and returns 0, so 255 is SSH
+    # itself failing (wrong PI_PASSWORD, or the link dropped mid-run).
     case "$rc" in
-        0) ;;
-        255) warn "the connection dropped - the Pi is probably rebooting" ;;
-        *) die "setup failed on the Pi (ssh exit $rc)" ;;
+        0)   ;;
+        255) die "SSH to $login failed (wrong PI_PASSWORD, or the connection dropped) - re-run" ;;
+        *)   die "setup failed on the Pi (exit $rc)" ;;
     esac
 }
 

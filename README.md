@@ -108,7 +108,8 @@ the `firewall` step has run, so does any Wi-Fi network the Pi joins.
    ```
 
    It finds the Pi by itself: the USB cable first (at `10.12.194.1`), then
-   Wi-Fi (at `<PI_NAME>.local`, or `PI_HOST`). It updates the Pi, strips it
+   its Tailscale name `<PI_NAME>` (from any device on your tailnet), then
+   Wi-Fi (at `<PI_NAME>.local`, or `PI_HOST`; only until the firewall is on). It updates the Pi, strips it
    down, sets up Wi-Fi and the laptop cable, installs Tailscale, then closes
    SSH on Wi-Fi. Without `TS_AUTHKEY`, it prints a login link: open it and
    approve the Pi. It reboots at the end if needed. The same command is the
@@ -235,8 +236,8 @@ setup.sh                   runs on the Pi, one step at a time
 | `system` | Updates, then keeps updating itself: Debian security and stable updates and the Raspberry Pi archive (kernel, firmware), rebooting at 04:30 when one needs it, and removing old kernels so the card doesn't fill up. The hardware watchdog reboots it after a 14 s hang. Logs and swap in RAM only, so the SD card barely gets written; one line per boot and clean shutdown goes to `/var/log/skidbladnir.log` (capped at 60 lines) so a crash leaves a trace. Bluetooth, LED, display driver, audio and idle consoles off; GPU memory at its minimum. |
 | `wifi` | Wi-Fi on, with the country from `COUNTRY`, power saving off (lower latency), and a dropped network retried forever. |
 | `usb` | Keeps `rpi-usb-gadget`'s switcher **enabled** (it's what brings `usb0` up), so a laptop on the cable gets an address with the Pi at `10.12.194.1`. Stops the Pi offering itself as the laptop's gateway or DNS. Skipped if the card wasn't prepared first (section 3, step 2). |
-| `tailscale` | Installs Tailscale with auto-updates and without support logging (which writes to the SD card), and logs in as `PI_NAME`, as an exit node. A systemd unit (`skidbladnir-routes`) advertises the Wi-Fi network as a route; a NetworkManager hook starts it on every change. Also enables forwarding (keeping IPv6 router advertisements working) and fq/BBR for userspace WireGuard. |
-| `firewall` | Puts `/etc/nftables.conf` in place: SSH is accepted on `usb0` and `tailscale0` only and dropped everywhere else. Established connections are kept. Nothing else on the host is filtered. |
+| `tailscale` | Installs Tailscale with auto-updates and without support logging (which writes to the SD card), and logs in as `PI_NAME`, as an exit node. A systemd unit (`skidbladnir-routes`) advertises the Wi-Fi network as a route; a NetworkManager hook starts it on every change. Also enables forwarding (keeping IPv6 router advertisements working), fq/BBR for the TCP the Pi opens itself, and bigger socket buffers for the tunnel. |
+| `firewall` | Puts `/etc/nftables.conf` in place: SSH is accepted on `usb0` and `tailscale0` only and dropped everywhere else. Established connections are kept. Nothing else on the host is filtered. It only ever replaces its own table: stopping or restarting `nftables` (an upgrade does) never touches Tailscale's rules. |
 
 `./deploy.sh` runs them all; on the Pi, `sudo bash setup.sh <step>` runs one.
 
@@ -249,7 +250,7 @@ setup.sh                   runs on the Pi, one step at a time
   SSH off Wi-Fi: a password is the only thing between a hotel LAN and the Pi.
 - **Speed:** Tailscale encrypts in userspace on a 1 GHz core over 2.4 GHz
   Wi-Fi, so expect tens of Mbps. Plenty for a phone, or for reaching a LAN.
-  `fq`/BBR and bigger socket buffers are enabled for exactly this path.
+  Bigger socket buffers help the tunnel's UDP on this path.
 
 ## Limits
 
