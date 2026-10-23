@@ -150,10 +150,6 @@ shown under the Pi's name on the *Machines* page.
 	},
 ```
 
-Save. The default policy's allow-all grant already lets your devices use the
-routes, so nothing else changes. It only approves routes advertised from now
-on: one already waiting needs approving by hand once (step 5).
-
 ## 4. Taking it somewhere
 
 Plug the Pi into anything that gives USB power. It joins the first saved Wi-Fi
