@@ -198,28 +198,6 @@ interface; Windows: Internet Connection Sharing), the Pi takes an address and
 internet from the laptop instead, and prefers it over Wi-Fi. It's then at
 `<PI_NAME>.local`, not `10.12.194.1`.
 
-## 5. Later
-
-- **Check on it**, from the PC over the cable or the tailnet:
-
-  ```bash
-  # over the tailnet, use <PI_USER>@<PI_NAME> instead of the cable address
-  ssh <PI_USER>@10.12.194.1 '
-    uptime
-    ip -br addr
-    nmcli -t -f NAME,DEVICE connection show --active
-    tailscale status
-    tailscale debug prefs | grep -i route
-    vcgencmd measure_temp
-    df -h /
-  '
-  ```
-
-- **After editing `skidbladnir.conf`,** run `./deploy.sh` again. Only what
-  differs changes.
-- **Reflashing the SD card:** remove the old Pi in the admin console, then do
-  section 3 again.
-
 ## How it works
 
 ```
