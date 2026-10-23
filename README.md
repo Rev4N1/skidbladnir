@@ -133,19 +133,26 @@ the `firewall` step has run, so does any Wi-Fi network the Pi joins.
    The LAN behind it works with or without that.
 
 **Every new Wi-Fi is a new route to approve.** To skip that, let your tailnet
-approve them by itself: in the admin console, *Access controls*, add this to
-the policy file, with your Tailscale login:
+approve them by itself. In the admin console, open
+[*Access controls*](https://login.tailscale.com/admin/acls/file) (the JSON
+editor) and add this block inside the outer `{ }`, after the `"ssh"` section's
+closing `],`. Put your Tailscale login in place of `you@example.com`: it's
+shown under the Pi's name on the *Machines* page.
 
 ```json
-"autoApprovers": {
-  "routes": {
-    "10.0.0.0/8":     ["you@example.com"],
-    "172.16.0.0/12":  ["you@example.com"],
-    "192.168.0.0/16": ["you@example.com"]
-  },
-  "exitNode": ["you@example.com"]
-}
+	"autoApprovers": {
+		"routes": {
+			"10.0.0.0/8":     ["you@example.com"],
+			"172.16.0.0/12":  ["you@example.com"],
+			"192.168.0.0/16": ["you@example.com"],
+		},
+		"exitNode": ["you@example.com"],
+	},
 ```
+
+Save. The default policy's allow-all grant already lets your devices use the
+routes, so nothing else changes. It only approves routes advertised from now
+on: one already waiting needs approving by hand once (step 5).
 
 ## 4. Taking it somewhere
 
